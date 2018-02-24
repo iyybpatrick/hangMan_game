@@ -26,7 +26,7 @@ import string
 from collections import defaultdict
 
 # parse a line of the training data file to produce a data sample record
-def parse_line(line):
+def parse_line(index, line):
     parts = line.split()
     label = int(parts[0])
     # the program requires binary labels in {0, 1}
@@ -40,7 +40,7 @@ def parse_line(line):
         # to [0, N - 1] for array indexing
         feature_ids.append(int(feature[0]) -  1)
         feature_vals.append(float(feature[1]))
-    return (label, (np.array(feature_ids), np.array(feature_vals)))
+    return (index, label, (np.array(feature_ids), np.array(feature_vals)))
 
 def sigmoid(x):
     return 1 / (1 + math.exp(-x))
@@ -113,32 +113,36 @@ if __name__ == "__main__":
 
     text_rdd = sc.textFile(data_path, minPartitions=num_partitions)
     # the RDD that contains parsed data samples, which are reused during training
-    samples_rdd = text_rdd.map(parse_line, preservesPartitioning=True)\
+    samples_rdd = text_rdd.mapPartitionsWithIndex(parse_line, preservesPartitioning=True)\
                  .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     # force samples_rdd to be created
     num_samples = samples_rdd.count()
     # initialize weights as a local array
     weights_array = np.ones(num_features) * weight_init_value
 
-    loss_list = []
-    for iteration in range(0, num_iterations):
-        # broadcast weights array to workers
-        weights_array_bc = sc.broadcast(weights_array)
-        # compute gradient descent updates in parallel
-        loss_updates_rdd = samples_rdd.mapPartitions(gd_partition)
-        # collect and sum up the and updates cross-entropy loss over all partitions
-        ret = loss_updates_rdd.reduce(lambda x, y: (x[0] + y[0], x[1] + y[1]))
-        loss = ret[0]
-        updates = ret[1]
-        loss_list.append(loss)
-        weights_array_bc.destroy()
-        weights_array += updates.toarray().squeeze()
-        # decay step size to ensure convergence
-        step_size *= 0.95
-        print "iteration: %d, cross-entropy loss: %f" % (iteration, loss)
+    pid_features = samples_rdd.map(lambda x : (x[0],x[2][1]))
 
-    # write the cross-entropy loss to a local file
-    with open(loss_file, "w") as loss_fobj:
-        for loss in loss_list:
-            loss_fobj.write(str(loss) + "\n")
-    print loss_list
+    print pid_features.collect()
+
+    # loss_list = []
+    # for iteration in range(0, num_iterations):
+    #     # broadcast weights array to workers
+    #     weights_array_bc = sc.broadcast(weights_array)
+    #     # compute gradient descent updates in parallel
+    #     loss_updates_rdd = samples_rdd.mapPartitions(gd_partition)
+    #     # collect and sum up the and updates cross-entropy loss over all partitions
+    #     ret = loss_updates_rdd.reduce(lambda x, y: (x[0] + y[0], x[1] + y[1]))
+    #     loss = ret[0]
+    #     updates = ret[1]
+    #     loss_list.append(loss)
+    #     weights_array_bc.destroy()
+    #     weights_array += updates.toarray().squeeze()
+    #     # decay step size to ensure convergence
+    #     step_size *= 0.95
+    #     print "iteration: %d, cross-entropy loss: %f" % (iteration, loss)
+    #
+    # # write the cross-entropy loss to a local file
+    # with open(loss_file, "w") as loss_fobj:
+    #     for loss in loss_list:
+    #         loss_fobj.write(str(loss) + "\n")
+    # print loss_list
