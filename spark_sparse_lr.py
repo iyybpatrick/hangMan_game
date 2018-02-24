@@ -27,20 +27,22 @@ from collections import defaultdict
 
 # parse a line of the training data file to produce a data sample record
 def parse_line(index, line):
-    parts = line.split()
-    label = int(parts[0])
-    # the program requires binary labels in {0, 1}
-    # the dataset may have binary labels -1 and 1, we convert all -1 to 0
-    label = 0 if label == -1 else label
-    feature_ids = []
-    feature_vals = []
-    for part in parts[1:]:
-        feature = part.split(":")
-        # the datasets have feature ids in [1, N] we convert them
-        # to [0, N - 1] for array indexing
-        feature_ids.append(int(feature[0]) -  1)
-        feature_vals.append(float(feature[1]))
-    return (index, label, (np.array(feature_ids), np.array(feature_vals)))
+    print index
+    print line
+    # parts = line.split()
+    # label = int(parts[0])
+    # # the program requires binary labels in {0, 1}
+    # # the dataset may have binary labels -1 and 1, we convert all -1 to 0
+    # label = 0 if label == -1 else label
+    # feature_ids = []
+    # feature_vals = []
+    # for part in parts[1:]:
+    #     feature = part.split(":")
+    #     # the datasets have feature ids in [1, N] we convert them
+    #     # to [0, N - 1] for array indexing
+    #     feature_ids.append(int(feature[0]) -  1)
+    #     feature_vals.append(float(feature[1]))
+    # return (index, label, (np.array(feature_ids), np.array(feature_vals)))
 
 def sigmoid(x):
     return 1 / (1 + math.exp(-x))
@@ -118,11 +120,11 @@ if __name__ == "__main__":
     # force samples_rdd to be created
     num_samples = samples_rdd.count()
     # initialize weights as a local array
-    weights_array = np.ones(num_features) * weight_init_value
-
-    pid_features = samples_rdd.map(lambda x : (x[0],x[2][1]))
-
-    print pid_features.collect()
+    # weights_array = np.ones(num_features) * weight_init_value
+    #
+    # pid_features = samples_rdd.map(lambda x : (x[0],x[2][1]))
+    #
+    # print pid_features.collect()
 
     # loss_list = []
     # for iteration in range(0, num_iterations):
