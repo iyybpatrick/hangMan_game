@@ -146,22 +146,21 @@ if __name__ == "__main__":
     #######################
 
     # (parId, [(label, ([fids],[vals])]))
-    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func)
-    num_samples = pid_label_fids_vals.count()
-
-    parId_samples_rdd = pid_label_fids_vals.flatMap(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(
-        lambda x: [(fid, x[1]) for fid in x[0]]).distinct().persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
-
-    num_samples = parId_samples_rdd.count()
+    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
     loss_fobj = open(loss_file, 'a+')
 
     for iteration in range(0, num_iterations):
         # compute gradient descent updates in parallel
-        pid_fid_wht = parId_samples_rdd.join(global_fweights).map(
+        parId_samples_rdd = pid_label_fids_vals.flatMap(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(
+            lambda x: [(fid, x[1]) for fid in x[0]]).distinct()
+
+        num_samples = parId_samples_rdd.count()
+
+        pid_fid_wht = parId_samples_rdd.join(global_fweights, numPartitions=num_partitions).map(
             lambda x: (x[1][0], (x[0], x[1][1]))).groupByKey().map(lambda x: (x[0], dict(x[1])))
 
-        joined = pid_label_fids_vals.join(pid_fid_wht)
+        joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
 
         loss_updates_rdd = joined.map(gd_partition)
         loss_updates_rdd.count()
