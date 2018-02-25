@@ -88,17 +88,15 @@ def gd_partition(samples):
         else:
             cross_entropy_loss -= safe_log(1 - pred)
 
-    print local_updates.keys()
-    print local_updates.values()
-    print [0, len(local_updates)]
-    print cross_entropy_loss
+    return [(cross_entropy_loss, local_updates.items())]
 
-    accumulated_updates = sps.csr_matrix(\
-                                         (local_updates.values(), \
-                                          local_updates.keys(), \
-                                          [0, len(local_updates)]), \
-                                         shape=(1, num_features))
-    return [(cross_entropy_loss, accumulated_updates)]
+    #
+    # accumulated_updates = sps.csr_matrix(\
+    #                                      (local_updates.values(), \
+    #                                       local_updates.keys(), \
+    #                                       [0, len(local_updates)]), \
+    #                                      shape=(1, num_features))
+    # return [(cross_entropy_loss, accumulated_updates)]
 
 def func(index, iterator):
         return [(index, [sample for sample in iterator])]
@@ -152,7 +150,6 @@ if __name__ == "__main__":
 
     # (parId, [(label, ([fids],[vals])]))
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func)
-    # print pid_label_fids_vals.count()
 
     parId_samples_rdd = pid_label_fids_vals.flatMap(lambda x : [(v[1][0], x[0]) for v in x[1]]).flatMap(lambda x :[(fid, x[1]) for fid in x[0]]).distinct()
 
@@ -166,16 +163,21 @@ if __name__ == "__main__":
         # compute gradient descent updates in parallel
         loss_updates_rdd = joined.map(gd_partition)
         loss_updates_rdd.count()
-        # collect and sum up the and updates cross-entropy loss over all partitions
-        loss = loss_updates_rdd.map(lambda x :x[0]).reduce(lambda x,y : x + y)
+        res =  loss_updates_rdd.collect()
+        # print res[0]
+        # print res[1]
 
+        # collect and sum up the and updates cross-entropy loss over all partitions
+        # loss = loss_updates_rdd.map(lambda x :x[0]).reduce(lambda x,y : x + y)
+        loss = loss_updates_rdd.flatMap(lambda x :[v[0] for v in x]).reduce(lambda x,y : x + y)
+        # print loss
         with open(loss_file, "w") as loss_fobj:
             print >> loss_fobj, str(loss)
             # loss_fobj.write(str(loss) + "\n")
         loss_fobj.close()
 
-
-        updates_rdd = loss_updates_rdd.map(lambda x : x[1])
+        updates_rdd = loss_updates_rdd.flatMap(lambda x : [v[1] for v in x]).flatMap(lambda x : x)
+        # print updates_rdd.collect()
         global_fweights = global_fweights.join(updates_rdd).reduceByKey(lambda x,y : x + y)
         global_fweights.count()
         # decay step size to ensure convergence
