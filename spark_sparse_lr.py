@@ -53,45 +53,101 @@ def safe_log(x):
     return math.log(x)
 
 # compute the gradient descent updates and cross-entropy loss for an RDD partition
-def gd_partition(samples):
+def gd_partition(sample):
+    # print "in"
+    # print sample
     local_updates = defaultdict(float)
-    local_weights_array = weights_array_bc.value
+    # local_weights_array = weights_array_bc.value
     cross_entropy_loss = 0
 
     # compute and accumulate updates for each data sample in the partition
-    for sample in samples:
-        label = sample[0]
-        features = sample[1]
-        feature_ids = features[0]
-        feature_vals = features[1]
-        # fetch the relevant weights for this sample as a numpy array
-        local_weights = np.take(local_weights_array, feature_ids)
-        # given the current weights, the probability of this sample belonging to
-        # class '1'
-        pred = sigmoid(feature_vals.dot(local_weights))
-        diff = label - pred
-        # the L2-regularlized gradients
-        gradient = diff * feature_vals + reg_param * local_weights
-        sample_update = step_size * gradient
+    label = sample[1][0][0]
 
-        for i in range(0, feature_ids.size):
-            local_updates[feature_ids[i]] += sample_update[i]
+    features = sample[1][0][1]
 
-        # compute the cross-entropy loss, which is an indirect measure of the
-        # objective function that the gradient descent algorithm optimizes for
+    feature_ids = features[0]
+    feature_vals = features[1]
+
+    weights_array = sample[1][1]
+
+    local_weights = []
+
+    for idx in feature_ids:
+        local_weights.append(weights_array[idx])
+
+    pred = sigmoid(feature_vals.dot(local_weights))
+    diff = label - pred
+
+    local_weights = np.array(local_weights)
+    feature_vals = np.array(feature_vals)
+
+    # the L2-regularlized gradients
+    gradient = diff * feature_vals + reg_param * local_weights
+
+    sample_update = step_size * gradient
+    # print sample_update
+
+    for i in range(0, feature_ids.size):
+        local_updates[feature_ids[i]] += sample_update[i]
         if label == 1:
             cross_entropy_loss -= safe_log(pred)
         else:
             cross_entropy_loss -= safe_log(1 - pred)
-    accumulated_updates = sps.csr_matrix(\
-                                         (local_updates.values(), \
-                                          local_updates.keys(), \
-                                          [0, len(local_updates)]), \
-                                         shape=(1, num_features))
+
+
+    # print cross_entropy_loss
+    # print local_updates
+    accumulated_updates = sps.csr_matrix( \
+        (local_updates.values(), \
+         local_updates.keys(), \
+         [0, len(local_updates)]), \
+        shape=(1, num_features))
     return [(cross_entropy_loss, accumulated_updates)]
+
+
+    # for sample in samples:
+    #     # label = sample[0]
+    #     # features = sample[1][1]
+    #     # feature_ids = features[0]
+    #     # feature_vals = features[1]
+    #
+    #     # fetch the relevant weights for this sample as a numpy array
+    #     local_weights = np.take(local_weights_array, feature_ids)
+    #     # given the current weights, the probability of this sample belonging to
+    #     # class '1'
+    #     pred = sigmoid(feature_vals.dot(local_weights))
+    #     diff = label - pred
+    #     # the L2-regularlized gradients
+    #     gradient = diff * feature_vals + reg_param * local_weights
+    #     sample_update = step_size * gradient
+    #
+    #     for i in range(0, feature_ids.size):
+    #         local_updates[feature_ids[i]] += sample_update[i]
+    #
+    #     # compute the cross-entropy loss, which is an indirect measure of the
+    #     # objective function that the gradient descent algorithm optimizes for
+    #     if label == 1:
+    #         cross_entropy_loss -= safe_log(pred)
+    #     else:
+    #         cross_entropy_loss -= safe_log(1 - pred)
+    # accumulated_updates = sps.csr_matrix(\
+    #                                      (local_updates.values(), \
+    #                                       local_updates.keys(), \
+    #                                       [0, len(local_updates)]), \
+    #                                      shape=(1, num_features))
+    # return [(cross_entropy_loss, accumulated_updates)]
 
 def func(index, iterator):
     return [(index, value) for value in iterator]
+
+def add_weight(sample):
+    dict = {}
+    for x in sample[1]:
+        dict[x] = weight_init_value
+
+    return (sample[0], dict)
+
+
 
 if __name__ == "__main__":
     data_path = sys.argv[1]
@@ -108,11 +164,11 @@ if __name__ == "__main__":
     reg_param = 0.01
 
     # total number of cores of your Spark slaves
-    num_cores = 64
+    num_cores = 1
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 4
+    num_partitions = num_cores * 5
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
     sc = pyspark.SparkContext(conf=conf)
 
@@ -120,35 +176,50 @@ if __name__ == "__main__":
     # the RDD that contains parsed data samples, which are reused during training
     samples_rdd = text_rdd.map(parse_line, preservesPartitioning=True)\
                  .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    num_samples = samples_rdd.count()
 
-    parId_fid = samples_rdd.mapPartitionsWithIndex(func)
+    global_fweights = sc.parallelize((i, weight_init_value) for i in range(9))
+    #######################
 
-    print parId_fid.collect()
-    #
-    # # force samples_rdd to be created
-    # num_samples = samples_rdd.count()
-    # # initialize weights as a local array
-    # weights_array = np.ones(num_features) * weight_init_value
+    parId_samples_rdd = samples_rdd.mapPartitionsWithIndex(func)
+    parId_fids_list = parId_samples_rdd.map(lambda x: (x[0], x[1][1][0])).reduceByKey(
+        lambda x, y: np.unique(np.append(x, y)))
 
-    # loss_list = []
-    # for iteration in range(0, num_iterations):
-    #     # broadcast weights array to workers
-    #     weights_array_bc = sc.broadcast(weights_array)
-    #     # compute gradient descent updates in parallel
-    #     loss_updates_rdd = samples_rdd.mapPartitions(gd_partition)
-    #     # collect and sum up the and updates cross-entropy loss over all partitions
-    #     ret = loss_updates_rdd.reduce(lambda x, y: (x[0] + y[0], x[1] + y[1]))
-    #     loss = ret[0]
-    #     updates = ret[1]
-    #     loss_list.append(loss)
-    #     weights_array_bc.destroy()
-    #     weights_array += updates.toarray().squeeze()
-    #     # decay step size to ensure convergence
-    #     step_size *= 0.95
-    #     print "iteration: %d, cross-entropy loss: %f" % (iteration, loss)
-    #
-    # # write the cross-entropy loss to a local file
-    # with open(loss_file, "w") as loss_fobj:
-    #     for loss in loss_list:
-    #         loss_fobj.write(str(loss) + "\n")
-    # print loss_list
+
+    # print parId_samples_rdd.collect()
+
+    # force samples_rdd to be created
+    # initialize weights as a local array
+    weights_array_rdd = sc
+    weights_array = np.ones(num_features) * weight_init_value
+
+
+    loss_list = []
+    for iteration in range(0, num_iterations):
+
+        par_fid_wei = parId_fids_list.flatMap(lambda x: [(idx, x[0]) for idx in x[1]]).join(global_fweights).map(
+            lambda x: (x[1][0], (x[0], x[1][1]))).groupByKey().map(lambda x: (x[0], dict(x[1])))
+
+        joined = parId_samples_rdd.join(par_fid_wei)
+
+        loss_updates_rdd = joined.map(gd_partition).collect()
+
+        loss_sum = loss_updates_rdd.map(lambda x: x[0]).reduce(lambda x, y: x + y)
+
+        # write the cross-entropy loss to a local file
+        with open(loss_file, "w") as loss_fobj:
+                loss_fobj.write(str(loss_sum) + "\n")
+        loss_fobj.close()
+
+        feature_updates = loss_updates_rdd.map(lambda x: x[1].items()).reduceByKey(lambda x, y: x + y)
+        global_fweights = global_fweights.join(feature_updates).reduceByKey(lambda x, y: x + y)
+
+        # decay step size to ensure convergence
+        step_size *= 0.95
+        print "iteration: %d, cross-entropy loss: %f" % (iteration, loss_sum)
+
+    # write the cross-entropy loss to a local file
+    with open(loss_file, "w") as loss_fobj:
+        for loss in loss_list:
+            loss_fobj.write(str(loss) + "\n")
+    print loss_list
