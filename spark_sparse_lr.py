@@ -148,7 +148,7 @@ if __name__ == "__main__":
     # [(fid, weight)]
     global_fweights = sc.parallelize((i, weight_init_value) for i in range(num_features)).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     #######################
-    
+
     # (parId, [(label, ([fids],[vals])]))
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     # num_samples = pid_label_fids_vals.count()
@@ -164,7 +164,7 @@ if __name__ == "__main__":
         #     lambda x: [(fid, x[1]) for fid in x[0]]).distinct()
 
 
-
+        loss_list = []
         # num_samples = parId_samples_rdd.count()
 
         pid_fid_wht = parId_samples_rdd.join(global_fweights)\
@@ -185,7 +185,7 @@ if __name__ == "__main__":
         # with open(loss_file, "w") as loss_fobj:
         loss_fobj.write(str(loss) + "\n")
         loss_fobj.flush()
-
+        loss_list.append(loss)
         updates_rdd = loss_updates_rdd.flatMap(lambda x : [v[1] for v in x])\
                                       .flatMap(lambda x : x).reduceByKey(lambda x,y : x + y)
         # print global_fweights.collect()
@@ -198,8 +198,8 @@ if __name__ == "__main__":
         print "iteration: %d, cross-entropy loss: %f" % (iteration, loss)
 
 
-    # # write the cross-entropy loss to a local file
-    # with open(loss_file, "w") as loss_fobj:
-    #     for loss in loss_list:
-    #         loss_fobj.write(str(loss) + "\n")
-    # print loss_list
+    # write the cross-entropy loss to a local file
+    with open(loss_file, "w") as loss_fobj:
+        for loss in loss_list:
+            loss_fobj.write(str(loss) + "\n")
+    print loss_list
