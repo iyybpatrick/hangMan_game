@@ -88,6 +88,10 @@ def gd_partition(samples):
         else:
             cross_entropy_loss -= safe_log(1 - pred)
 
+    print local_updates.keys()
+    print local_updates.values()
+    print [0, len(local_updates)]
+    print cross_entropy_loss
 
     accumulated_updates = sps.csr_matrix(\
                                          (local_updates.values(), \
@@ -163,11 +167,11 @@ if __name__ == "__main__":
         loss_updates_rdd = joined.map(gd_partition)
         loss_updates_rdd.count()
         # collect and sum up the and updates cross-entropy loss over all partitions
-        ret = loss_updates_rdd.reduce(lambda x, y: (x[0] + y[0], x[1] + y[1]))
-        loss = loss_updates_rdd.map(lambda x :x[0]).reduce(lambda x,y : x + y).collect()
+        loss = loss_updates_rdd.map(lambda x :x[0]).reduce(lambda x,y : x + y)
 
         with open(loss_file, "w") as loss_fobj:
-            loss_fobj.write(str(loss) + "\n")
+            print >> loss_fobj, str(loss)
+            # loss_fobj.write(str(loss) + "\n")
         loss_fobj.close()
 
 
