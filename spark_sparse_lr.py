@@ -101,7 +101,6 @@ def gd_partition(samples):
 def func(index, iterator):
         return [(index, [sample for sample in iterator])]
 
-
 def add_weight(sample):
     dict = {}
     for x in sample[1]:
@@ -140,9 +139,7 @@ if __name__ == "__main__":
 
     text_rdd = sc.textFile(data_path, minPartitions=num_partitions)
     # the RDD that contains parsed data samples, which are reused during training
-    samples_rdd = text_rdd.map(parse_line, preservesPartitioning=True)\
-                 .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
-    num_samples = samples_rdd.count()
+    samples_rdd = text_rdd.map(parse_line)
 
     # [(fid, weight)]
     global_fweights = sc.parallelize((i, weight_init_value) for i in range(num_features))
@@ -150,35 +147,35 @@ if __name__ == "__main__":
 
     # (parId, [(label, ([fids],[vals])]))
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func)
+    num_samples = pid_label_fids_vals.count()
 
-    parId_samples_rdd = pid_label_fids_vals.flatMap(lambda x : [(v[1][0], x[0]) for v in x[1]]).flatMap(lambda x :[(fid, x[1]) for fid in x[0]]).distinct()
+    parId_samples_rdd = pid_label_fids_vals.flatMap(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(
+        lambda x: [(fid, x[1]) for fid in x[0]]).distinct().persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
+    num_samples = parId_samples_rdd.count()
 
-    pid_fid_wht = parId_samples_rdd.join(global_fweights).map(lambda x: (x[1][0], (x[0], x[1][1]))).groupByKey().map(lambda x:(x[0],dict(x[1])))
-
-    joined = pid_label_fids_vals.join(pid_fid_wht)
-
+    loss_fobj = open(loss_file, 'a+')
 
     for iteration in range(0, num_iterations):
         # compute gradient descent updates in parallel
+        pid_fid_wht = parId_samples_rdd.join(global_fweights).map(
+            lambda x: (x[1][0], (x[0], x[1][1]))).groupByKey().map(lambda x: (x[0], dict(x[1])))
+
+        joined = pid_label_fids_vals.join(pid_fid_wht)
+
         loss_updates_rdd = joined.map(gd_partition)
         loss_updates_rdd.count()
-        res =  loss_updates_rdd.collect()
-        # print res[0]
-        # print res[1]
 
         # collect and sum up the and updates cross-entropy loss over all partitions
-        # loss = loss_updates_rdd.map(lambda x :x[0]).reduce(lambda x,y : x + y)
         loss = loss_updates_rdd.flatMap(lambda x :[v[0] for v in x]).reduce(lambda x,y : x + y)
         # print loss
         with open(loss_file, "w") as loss_fobj:
-            print >> loss_fobj, str(loss)
-            # loss_fobj.write(str(loss) + "\n")
-        loss_fobj.close()
+            loss_fobj.write(str(loss) + "\n")
+            loss_fobj.flush()
 
         updates_rdd = loss_updates_rdd.flatMap(lambda x : [v[1] for v in x]).flatMap(lambda x : x)
         # print updates_rdd.collect()
-        global_fweights = global_fweights.join(updates_rdd).reduceByKey(lambda x,y : x + y)
+        global_fweights = global_fweights.join(updates_rdd, numPartitions=num_partitions).reduceByKey(lambda x,y : x + y)
         global_fweights.count()
         # decay step size to ensure convergence
         step_size *= 0.95
