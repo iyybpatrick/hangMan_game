@@ -56,9 +56,7 @@ def safe_log(x):
 def gd_partition(samples):
     # (parId, [(label, ([fids], [vals])], {(fid, weight)}))
     local_updates = defaultdict(float)
-    # local_weights_array = weights_array_bc.value
     cross_entropy_loss = 0
-    # print samples
     # compute and accumulate updates for each data sample in the partition
     for sample in samples[1][0]:
 
@@ -66,19 +64,11 @@ def gd_partition(samples):
         features = sample[1]
         feature_ids = features[0]
         feature_vals = features[1]
-        # print label
-        # print feature_ids
-        # print feature_vals
-        # fetch the relevant weights for this sample as a numpy array
         local_weights = np.array([])
         # local_weights.append()
         for fid in feature_ids:
             local_weights = np.append(local_weights, samples[1][1][fid])
 
-
-        # local_weights = np.take(samples[1][1], feature_ids)
-        # print local_weights
-        # local_weights = np.take(local_weights_array, feature_ids)
         # given the current weights, the probability of this sample belonging to
         # class '1'
         pred = sigmoid(feature_vals.dot(local_weights))
@@ -157,9 +147,7 @@ if __name__ == "__main__":
     #######################
 
     # (parId, [(label, ([fids],[vals])]))
-    print samples_rdd.collect()
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func)
-    print pid_label_fids_vals.collect()
     # print pid_label_fids_vals.count()
 
     parId_samples_rdd = pid_label_fids_vals.flatMap(lambda x : [(v[1][0], x[0]) for v in x[1]]).flatMap(lambda x :[(fid, x[1]) for fid in x[0]]).distinct()
@@ -175,7 +163,6 @@ if __name__ == "__main__":
         loss_updates_rdd = joined.map(gd_partition)
         loss_updates_rdd.count()
         # collect and sum up the and updates cross-entropy loss over all partitions
-
         ret = loss_updates_rdd.reduce(lambda x, y: (x[0] + y[0], x[1] + y[1]))
         loss = loss_updates_rdd.map(lambda x :x[0]).reduce(lambda x,y : x + y).collect()
 
