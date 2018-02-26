@@ -93,6 +93,13 @@ def gd_partition(samples):
 def func(index, iterator):
         return [(index, [sample for sample in iterator])]
 
+def add_weight(sample):
+    dict = {}
+    for x in sample[1]:
+        dict[x] = weight_init_value
+
+    return (sample[0], dict)
+
 def get_fid_pid(samples):
     res_set = set()
     for sample in samples:
@@ -148,6 +155,8 @@ if __name__ == "__main__":
     # [(fid, weight)]
     global_fweights = pid_label_fids_vals.flatMap(lambda x : (global_feature_weight(x[0], unit_num, last_unit_num)))
 
+
+    # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
 
     for iteration in range(0, num_iterations):
