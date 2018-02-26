@@ -90,10 +90,23 @@ def gd_partition(samples):
                     
                     return [(cross_entropy_loss, local_updates.items())]
 
-# adding partition index to each partition
-def add_partition(index, iterator):
+#
+# accumulated_updates = sps.csr_matrix(\
+#                                      (local_updates.values(), \
+#                                       local_updates.keys(), \
+#                                       [0, len(local_updates)]), \
+#                                      shape=(1, num_features))
+# return [(cross_entropy_loss, accumulated_updates)]
+
+def func(index, iterator):
     return [(index, [sample for sample in iterator])]
 
+def add_weight(sample):
+    dict = {}
+    for x in sample[1]:
+        dict[x] = weight_init_value
+    
+    return (sample[0], dict)
 
 def get_fid_pid(samples):
     res_set = set()
@@ -124,7 +137,7 @@ if __name__ == "__main__":
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 16
+    num_partitions = num_cores * 4
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
     sc = pyspark.SparkContext(conf=conf)
     
@@ -133,12 +146,11 @@ if __name__ == "__main__":
     samples_rdd = text_rdd.map(parse_line)
     
     # [(fid, weight)]
-    global_fweights = sc.parallelize((i, weight_init_value) for i in range(num_features)).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    global_fweights = sc.parallelize((i, weight_init_value) for i in range(9)).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     #######################
     
     # (parId, [(label, ([fids],[vals])]))
-    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(add_partition, preservesPartitioning=True)
-                                     .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
     
@@ -148,7 +160,6 @@ if __name__ == "__main__":
         # fid parId
         parId_samples_rdd = pid_label_fids_vals.map(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(get_fid_pid)
         
-        loss_list = []
         # num_samples = parId_samples_rdd.count()
         
         pid_fid_wht = parId_samples_rdd.join(global_fweights)\
@@ -169,7 +180,6 @@ if __name__ == "__main__":
         # with open(loss_file, "w") as loss_fobj:
         loss_fobj.write(str(loss) + "\n")
         loss_fobj.flush()
-        loss_list.append(loss)
         updates_rdd = loss_updates_rdd.flatMap(lambda x : [v[1] for v in x])\
             .flatMap(lambda x : x).reduceByKey(lambda x,y : x + y)
         # print global_fweights.collect()
@@ -180,10 +190,3 @@ global_fweights.count()
     # decay step size to ensure convergence
     step_size *= 0.95
         print "iteration: %d, cross-entropy loss: %f" % (iteration, loss)
-    
-    
-    # write the cross-entropy loss to a local file
-    with open(loss_file, "w") as loss_fobj:
-        for loss in loss_list:
-            loss_fobj.write(str(loss) + "\n")
-    print loss_list
