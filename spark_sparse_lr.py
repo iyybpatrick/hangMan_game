@@ -172,9 +172,9 @@ if __name__ == "__main__":
 
         # (parId, [(label, ([fids],[vals])]))
         pid_fid_wht = parId_samples_rdd.join(global_fweights)\
-            .map(lambda x: (x[1][0], (x[0], x[1][1])))\
-            .groupByKey(numPartitions=num_partitions)\
-            .map(lambda x: (x[0], dict(x[1])))
+            .map(lambda x: (x[1][0], (x[0], x[1][1])), preservesPartitioning=True)\
+            .groupByKey(numPartitions=num_partitions, preservesPartitioning=True)\
+            .map(lambda x: (x[0], dict(x[1])), preservesPartitioning=True)
         #pid_fid_wht
         joined = pid_fid_wht.join(pid_label_fids_vals, numPartitions=num_partitions)
 
