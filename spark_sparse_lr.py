@@ -54,7 +54,7 @@ def safe_log(x):
 
 # compute the gradient descent updates and cross-entropy loss for an RDD partition
 def gd_partition(samples):
-    # (parId, [(label, ([fids], [vals])], {(fid, weight)}))
+    # (parId, ({(fid, weight)}, [(label, ([fids], [vals])])))
     local_updates = defaultdict(float)
     cross_entropy_loss = 0
     # compute and accumulate updates for each data sample in the partition
@@ -100,13 +100,13 @@ def add_weight(sample):
 
     return (sample[0], dict)
 
+# ([fids], parId)
 def get_fid_pid(samples):
     res_set = set()
     for sample in samples:
-        # print sample[1]
         for ele in sample[0]:
             res_set.add((ele, sample[1]))
-    return list(res_set)
+    return res_set
 
 def global_feature_weight(parId, unit_num, last_unit_num):
     list = []
@@ -137,11 +137,11 @@ if __name__ == "__main__":
     reg_param = 0.01
 
     # total number of cores of your Spark slaves
-    num_cores = 4
+    num_cores = 64
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 1
+    num_partitions = num_cores * 3
     unit_num = int(num_features / num_partitions)
     last_unit_num = num_features - unit_num * num_partitions + unit_num
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
@@ -153,13 +153,18 @@ if __name__ == "__main__":
 
     # (parId, [(label, ([fids],[vals])]))
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(get_par_sample, preservesPartitioning=True)\
-				 .partitionBy(numPartitions=num_partitions).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+				 .partitionBy(numPartitions=num_partitions)\
+                 .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     # [(fid, weight)]
-    global_fweights = pid_label_fids_vals.flatMap(lambda x : (global_feature_weight(x[0], unit_num, last_unit_num)))
+    global_fweights = pid_label_fids_vals.flatMap(lambda x : (global_feature_weight(x[0], unit_num, last_unit_num)))\
+                                         .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
-    # fid parId
+    # ([fids], parId)
     parId_samples_rdd = pid_label_fids_vals.map(lambda x: [(v[1][0], x[0]) for v in x[1]], preservesPartitioning=True)\
-                                           .flatMap(get_fid_pid, preservesPartitioning=True)
+                                           .flatMap(get_fid_pid, preservesPartitioning=True)\
+                                           .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+
+
     # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
 
@@ -174,7 +179,7 @@ if __name__ == "__main__":
         #pid_fid_wht
         joined = pid_fid_wht.join(pid_label_fids_vals, numPartitions=num_partitions)
 
-        loss_updates_rdd = joined.map(gd_partition) # .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+        loss_updates_rdd = joined.map(gd_partition).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
         loss_acc = sc.accumulator(0)
 
@@ -185,6 +190,7 @@ if __name__ == "__main__":
                                          .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
         new_global_fweights.count()
+        loss_updates_rdd.unpersist()
         global_fweights.unpersist()
         global_fweights = new_global_fweights
 
