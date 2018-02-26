@@ -57,6 +57,9 @@ def gd_partition(samples):
     # (parId, ({(fid, weight)}, [(label, ([fids], [vals])])))
     local_updates = defaultdict(float)
     cross_entropy_loss = 0
+    fid_weht_dict = samples[1][0]
+
+    # print fid_weht_dict
     # compute and accumulate updates for each data sample in the partition
     for sample in samples[1][1]:
 
@@ -141,7 +144,7 @@ if __name__ == "__main__":
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 64
+    num_partitions = num_cores * 3
     unit_num = int(num_features / num_partitions)
     last_unit_num = num_features - unit_num * num_partitions + unit_num
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
