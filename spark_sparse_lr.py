@@ -164,7 +164,6 @@ if __name__ == "__main__":
                                            .flatMap(get_fid_pid, preservesPartitioning=True)\
                                            .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
-
     # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
 
@@ -174,7 +173,7 @@ if __name__ == "__main__":
         # (parId, [(label, ([fids],[vals])]))
         pid_fid_wht = parId_samples_rdd.join(global_fweights)\
             .map(lambda x: (x[1][0], (x[0], x[1][1])))\
-            .groupByKey()\
+            .groupByKey(numPartitions=num_partitions)\
             .map(lambda x: (x[0], dict(x[1])))
         #pid_fid_wht
         joined = pid_fid_wht.join(pid_label_fids_vals, numPartitions=num_partitions)
@@ -183,7 +182,8 @@ if __name__ == "__main__":
 
         loss_acc = sc.accumulator(0)
 
-        updates_rdd = loss_updates_rdd.flatMap(get_loss_updates).reduceByKey(lambda x,y : x + y)
+        updates_rdd = loss_updates_rdd.flatMap(get_loss_updates)\
+                                      .reduceByKey(lambda x,y : x + y, numPartitions=num_partitions)
 
         new_global_fweights = global_fweights.join(updates_rdd, numPartitions=num_partitions)\
                                          .map(lambda x : (x[0],x[1][0] + x[1][1]))\
