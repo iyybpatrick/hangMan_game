@@ -146,7 +146,7 @@ if __name__ == "__main__":
     samples_rdd = text_rdd.map(parse_line)
     
     # [(fid, weight)]
-    global_fweights = sc.parallelize((i, weight_init_value) for i in range(9)).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    global_fweights = sc.parallelize((i, weight_init_value) for i in range(num_features)).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     #######################
     
     # (parId, [(label, ([fids],[vals])]))
@@ -160,14 +160,12 @@ if __name__ == "__main__":
         # fid parId
         parId_samples_rdd = pid_label_fids_vals.map(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(get_fid_pid)
         
-        # num_samples = parId_samples_rdd.count()
         
         pid_fid_wht = parId_samples_rdd.join(global_fweights)\
             .map(lambda x: (x[1][0], (x[0], x[1][1])))\
             .groupByKey()\
             .map(lambda x: (x[0], dict(x[1])))
-        # num_samples = pid_fid_wht.count()
-        
+    
         joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
         
         loss_updates_rdd = joined.map(gd_partition)\
