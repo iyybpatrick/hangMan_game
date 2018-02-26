@@ -59,7 +59,7 @@ def gd_partition(samples):
     cross_entropy_loss = 0
     # compute and accumulate updates for each data sample in the partition
     for sample in samples[1][0]:
-        
+
         label = sample[0]
         features = sample[1]
         feature_ids = features[0]
@@ -68,32 +68,45 @@ def gd_partition(samples):
         # local_weights.append()
         for fid in feature_ids:
             local_weights = np.append(local_weights, samples[1][1][fid])
-    
+
         # given the current weights, the probability of this sample belonging to
         # class '1'
         pred = sigmoid(feature_vals.dot(local_weights))
         diff = label - pred
-        
+
         # the L2-regularlized gradients
         gradient = diff * feature_vals + reg_param * local_weights
         sample_update = step_size * gradient
-        
+
         for i in range(0, feature_ids.size):
             local_updates[feature_ids[i]] += sample_update[i]
-        
+
         # compute the cross-entropy loss, which is an indirect measure of the
         # objective function that the gradient descent algorithm optimizes for
         if label == 1:
             cross_entropy_loss -= safe_log(pred)
         else:
             cross_entropy_loss -= safe_log(1 - pred)
-                    
-        return [(cross_entropy_loss, local_updates.items())]
 
-# adding partition index to each partition
-def add_partition(index, iterator):
-    return [(index, [sample for sample in iterator])]
+    return [(cross_entropy_loss, local_updates.items())]
 
+    #
+    # accumulated_updates = sps.csr_matrix(\
+    #                                      (local_updates.values(), \
+    #                                       local_updates.keys(), \
+    #                                       [0, len(local_updates)]), \
+    #                                      shape=(1, num_features))
+    # return [(cross_entropy_loss, accumulated_updates)]
+
+def func(index, iterator):
+        return [(index, [sample for sample in iterator])]
+
+def add_weight(sample):
+    dict = {}
+    for x in sample[1]:
+        dict[x] = weight_init_value
+
+    return (sample[0], dict)
 
 def get_fid_pid(samples):
     res_set = set()
@@ -111,67 +124,67 @@ if __name__ == "__main__":
     num_iterations = int(sys.argv[3])
     step_size = float(sys.argv[4])
     loss_file = sys.argv[5]
-    
+
     # for all test cases, your weights should all be initialized to this value
     weight_init_value = 0.001
     # the step size is multiplicatively decreased each iteration at this rate
     step_size_decay = 0.95
     # the L2 regularization parameter
     reg_param = 0.01
-    
+
     # total number of cores of your Spark slaves
     num_cores = 64
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 16
+    num_partitions = num_cores * 24
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
     sc = pyspark.SparkContext(conf=conf)
-    
+
     text_rdd = sc.textFile(data_path, minPartitions=num_partitions)
     # the RDD that contains parsed data samples, which are reused during training
     samples_rdd = text_rdd.map(parse_line)
-    
+
     # [(fid, weight)]
     global_fweights = sc.parallelize((i, weight_init_value) for i in range(num_features)).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     #######################
-    
+
     # (parId, [(label, ([fids],[vals])]))
-    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(add_partition, preservesPartitioning=True)\
-                                     .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
-    
+
     for iteration in range(0, num_iterations):
         # compute gradient descent updates in parallel
-        # (parId, [(label, ([fids],[vals])]))
-        # fid parId
+                         # (parId, [(label, ([fids],[vals])]))
+             # fid parId
         parId_samples_rdd = pid_label_fids_vals.map(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(get_fid_pid)
-        
+
+
         pid_fid_wht = parId_samples_rdd.join(global_fweights)\
             .map(lambda x: (x[1][0], (x[0], x[1][1])))\
             .groupByKey()\
             .map(lambda x: (x[0], dict(x[1])))
-        
+
         joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
-        
+
         loss_updates_rdd = joined.map(gd_partition)\
-            .persist(pyspark.storagelevel
-                     .StorageLevel.MEMORY_AND_DISK)
-        
+                                 .persist(pyspark.storagelevel
+                                 .StorageLevel.MEMORY_AND_DISK)
+
         # collect and sum up the and updates cross-entropy loss over all partitions
         loss = loss_updates_rdd.flatMap(lambda x :[v[0] for v in x])\
-            .reduce(lambda x,y : x + y)
+                               .reduce(lambda x,y : x + y)
         # with open(loss_file, "w") as loss_fobj:
         loss_fobj.write(str(loss) + "\n")
         loss_fobj.flush()
         updates_rdd = loss_updates_rdd.flatMap(lambda x : [v[1] for v in x])\
-            .flatMap(lambda x : x).reduceByKey(lambda x,y : x + y)
+                                      .flatMap(lambda x : x).reduceByKey(lambda x,y : x + y)
+        # print global_fweights.collect()
         global_fweights = global_fweights.join(updates_rdd, numPartitions=num_partitions)\
-            .map(lambda x : (x[0],x[1][0] + x[1][1]))\
-                .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+                                         .map(lambda x : (x[0],x[1][0] + x[1][1]))\
+                                         .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
         global_fweights.count()
         # decay step size to ensure convergence
         step_size *= 0.95
         print "iteration: %d, cross-entropy loss: %f" % (iteration, loss)
-    
