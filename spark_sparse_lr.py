@@ -118,6 +118,10 @@ def global_feature_weight(parId, unit_num, last_unit_num):
             list.append((parId * unit_num + i, weight_init_value))
     return list
 
+
+
+
+
 if __name__ == "__main__":
     data_path = sys.argv[1]
     num_features = int(sys.argv[2])
@@ -147,10 +151,10 @@ if __name__ == "__main__":
     # the RDD that contains parsed data samples, which are reused during training
     samples_rdd = text_rdd.map(parse_line)
 
+    #######################
+
     # (parId, [(label, ([fids],[vals])]))
-    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True)\
-                                     .partitionBy(numPartitions=num_partitions)\
-                                     .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True).partitionBy(numPartitions=num_partitions).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     num_par = pid_label_fids_vals.count()
     # [(fid, weight)]
     global_fweights = pid_label_fids_vals.flatMap(lambda x : (global_feature_weight(x[0], unit_num, last_unit_num)))
