@@ -93,13 +93,6 @@ def gd_partition(samples):
 def func(index, iterator):
         return [(index, [sample for sample in iterator])]
 
-def add_weight(sample):
-    dict = {}
-    for x in sample[1]:
-        dict[x] = weight_init_value
-
-    return (sample[0], dict)
-
 def get_fid_pid(samples):
     res_set = set()
     for sample in samples:
@@ -117,10 +110,6 @@ def global_feature_weight(parId, unit_num, last_unit_num):
         for i in range(last_unit_num):
             list.append((parId * unit_num + i, weight_init_value))
     return list
-
-
-
-
 
 if __name__ == "__main__":
     data_path = sys.argv[1]
@@ -151,16 +140,14 @@ if __name__ == "__main__":
     # the RDD that contains parsed data samples, which are reused during training
     samples_rdd = text_rdd.map(parse_line)
 
-    #######################
-
     # (parId, [(label, ([fids],[vals])]))
-    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True).partitionBy(numPartitions=num_partitions).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
-
+    pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(func, preservesPartitioning=True)\
+                                     .partitionBy(numPartitions=num_partitions)\
+                                     .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+    num_par = pid_label_fids_vals.count()
     # [(fid, weight)]
     global_fweights = pid_label_fids_vals.flatMap(lambda x : (global_feature_weight(x[0], unit_num, last_unit_num)))
 
-
-    # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
 
     for iteration in range(0, num_iterations):
