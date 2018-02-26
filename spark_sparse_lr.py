@@ -137,11 +137,11 @@ if __name__ == "__main__":
     reg_param = 0.01
 
     # total number of cores of your Spark slaves
-    num_cores = 64
+    num_cores = 4
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 3
+    num_partitions = num_cores * 1
     unit_num = int(num_features / num_partitions)
     last_unit_num = num_features - unit_num * num_partitions + unit_num
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
@@ -153,13 +153,13 @@ if __name__ == "__main__":
 
     # (parId, [(label, ([fids],[vals])]))
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(get_par_sample, preservesPartitioning=True)\
-                                     .partitionBy(numPartitions=num_partitions)\
-                                     .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+				 .partitionBy(numPartitions=num_partitions).persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
     # [(fid, weight)]
     global_fweights = pid_label_fids_vals.flatMap(lambda x : (global_feature_weight(x[0], unit_num, last_unit_num)))
 
     # fid parId
-    parId_samples_rdd = pid_label_fids_vals.map(lambda x: [(v[1][0], x[0]) for v in x[1]]).flatMap(get_fid_pid)
+    parId_samples_rdd = pid_label_fids_vals.map(lambda x: [(v[1][0], x[0]) for v in x[1]], preservesPartitioning=True)\
+                                           .flatMap(get_fid_pid, preservesPartitioning=True)
     # num_samples = pid_label_fids_vals.count()
     loss_fobj = open(loss_file, 'a+')
 
