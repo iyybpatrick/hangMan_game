@@ -51,36 +51,30 @@ def safe_log(x):
         x = 1e-15
     return math.log(x)
 
-def gd_partition(samples):
     # (parId, ([(label, ([fids], [vals])], [(fid, weight)])))
+def gd_partition(samples):
     local_updates = {}
     cross_entropy_loss = 0
     fid_weht_dict = dict(samples[1][1])
-    # print fid_weht_dict
-    # print fid_weht_dict
-    # compute and accumulate updates for each data sample in the partition
 
     for sample in samples[1][0]:
         label = sample[0]
         features = sample[1]
-        # print features
         feature_ids = features[0]
         feature_vals = features[1]
-        # print fid_weht_dict
 
-        # print samples[1][0][1][1]
+        # local_weights = np.array([])
+        # for fid in feature_ids:
+        #     local_weights = np.append(local_weights, fid_weht_dict[fid])
+
         local_weights = np.array([fid_weht_dict[feature_id]
                                   for feature_id in feature_ids])
-
-        # print local_weights
-        # for fid in feature_ids:
-        #     local_weights = np.append(local_weights, samples[1][0][1][1][fid])
 
         # given the current weights, the probability of this sample belonging to
         # class '1'
         pred = sigmoid(feature_vals.dot(local_weights))
         diff = label - pred
-        # print diff
+
         # the L2-regularlized gradients
         gradient = diff * feature_vals + reg_param * local_weights
         sample_update = step_size * gradient
@@ -96,10 +90,8 @@ def gd_partition(samples):
         # objective function that the gradient descent algorithm optimizes for
         if label == 1:
             loss_acc.add(-safe_log(pred))
-            # cross_entropy_loss -= safe_log(pred)
         else:
             loss_acc.add(-safe_log(1 - pred))
-            # cross_entropy_loss -= safe_log(1 - pred)
 
     return local_updates.items()
 
@@ -107,8 +99,7 @@ def gd_partition(samples):
 def get_par_sample(index, iterator):
         return [(index, [sample for sample in iterator])]
 
-# input : (parId, [(label, ([fids],[vals])]))
-# output : ([fids], parId)
+# (parId, [(label, ([fids],[vals])]))
 def get_fid_pid(samples):
     parid = samples[0]
     res_set = set()
@@ -117,11 +108,6 @@ def get_fid_pid(samples):
         for fid in fids:
             res_set.add((fid, parid))
     return res_set
-
-def get_loss_updates(sample):
-    # loss_acc.add(sample[0])
-    return sample
-
 
 if __name__ == "__main__":
     data_path = sys.argv[1]
@@ -168,30 +154,26 @@ if __name__ == "__main__":
     # print global_fweights.collect()
     for iteration in range(0, num_iterations):
         # compute gradient descent updates in parallel
-        # print parId_samples_rdd.collect()
-        #((pid, [(fid, weight)]))
         pid_fid_wht = parId_samples_rdd.join(global_fweights, numPartitions=num_partitions)\
                                        .map(lambda x: (x[1][0], (x[0], x[1][1])), preservesPartitioning=True) \
                                        .groupByKey(numPartitions=num_partitions)\
                                        .map(lambda x: (x[0], dict(x[1])), preservesPartitioning=True)
 
-        # print pid_fid_wht.map(lambda x : (x[0], list(x[1]))).collect()
-        # (parId, ([(fid, weight)], [(label, ([fids], [vals])])))
-        joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
-        # print joined.collect()
 
+        # joined ; (parId, ([(fid, weight)], [(label, ([fids], [vals])])))
+        joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
 
         loss_acc = sc.accumulator(0)
         loss_updates_rdd = joined.map(gd_partition, preservesPartitioning=True)\
-                                 .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
-        loss_updates_rdd.count()
-    
+                                 # .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
+        # loss_updates_rdd.count()
+
         new_global_fweights = loss_updates_rdd.flatMap(lambda x : x).reduceByKey(lambda x,y : (x[0]+y[0], x[1]), numPartitions=num_partitions)\
                                               .map(lambda x :(x[0],x[1][0] + x[1][1]))\
                                               .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
         new_global_fweights.count()
-        loss_updates_rdd.unpersist()
+        # loss_updates_rdd.unpersist()
         global_fweights.unpersist()
         global_fweights = new_global_fweights
 
