@@ -45,6 +45,10 @@ def parse_line(line):
 def sigmoid(x):
     return 1 / (1 + math.exp(-x))
 
+def get_loss_updates(sample):
+    loss_acc.add(sample[0])
+    return sample[1]
+
 # compute logarithm of a number but thresholding the number to avoid logarithm of
 def safe_log(x):
     if x < 1e-15:
@@ -89,11 +93,11 @@ def gd_partition(samples):
         # compute the cross-entropy loss, which is an indirect measure of the
         # objective function that the gradient descent algorithm optimizes for
         if label == 1:
-            loss_acc.add(-safe_log(pred))
+            cross_entropy_loss -= safe_log(pred)
         else:
-            loss_acc.add(-safe_log(1 - pred))
+            cross_entropy_loss -= safe_log(1 - pred)
 
-    return local_updates.items()
+    return (cross_entropy_loss, local_updates.items())
 
 # bound together partition id with each partition
 def get_par_sample(index, iterator):
@@ -165,19 +169,18 @@ if __name__ == "__main__":
 
         loss_acc = sc.accumulator(0)
         loss_updates_rdd = joined.map(gd_partition, preservesPartitioning=True)\
-                                 # .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
-        # loss_updates_rdd.count()
+                                 .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
-        new_global_fweights = loss_updates_rdd.flatMap(lambda x : x).reduceByKey(lambda x,y : (x[0]+y[0], x[1]), numPartitions=num_partitions)\
+
+        new_global_fweights = loss_updates_rdd.flatMap(get_loss_updates).reduceByKey(lambda x,y : (x[0]+y[0], x[1]), numPartitions=num_partitions)\
                                               .map(lambda x :(x[0],x[1][0] + x[1][1]))\
                                               .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
         new_global_fweights.count()
-        # loss_updates_rdd.unpersist()
+        loss_updates_rdd.unpersist()
         global_fweights.unpersist()
         global_fweights = new_global_fweights
 
-        # with open(loss_file, "w") as loss_fobj:
         loss_fobj.write(str(loss_acc.value) + "\n")
         loss_fobj.flush()
 
