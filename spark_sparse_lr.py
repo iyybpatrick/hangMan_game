@@ -96,8 +96,7 @@ def gd_partition(iterator):
                 cross_entropy_loss -= safe_log(pred)
             else:
                 cross_entropy_loss -= safe_log(1 - pred)
-
-            return [(cross_entropy_loss, local_updates.items())]
+    return [(cross_entropy_loss, local_updates.items())]
 
 
 def get_loss(samples):
@@ -163,7 +162,7 @@ if __name__ == "__main__":
     for iteration in range(0, num_iterations):
         # compute gradient descent updates in parallel
         pid_fid_wht = parId_samples_rdd.join(global_fweights, numPartitions=num_partitions)\
-                                       .map(lambda x: (x[1][0], (x[0], x[1][1])) ,preservesPartitioning=True) \
+                                       .map(lambda x: (x[1][0], (x[0], x[1][1]))) \
                                        .groupByKey(numPartitions=num_partitions)\
 
 
