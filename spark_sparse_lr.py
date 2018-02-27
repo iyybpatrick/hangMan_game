@@ -55,10 +55,10 @@ def safe_log(x):
 # compute the gradient descent updates and cross-entropy loss for an RDD partition
 def gd_partition(samples):
     # (parId, ({(fid, weight)}, [(label, ([fids], [vals])])))
-    local_updates = defaultdict(float)
+    local_updates = {}
     cross_entropy_loss = 0
     fid_weht_dict = samples[1][0]
-
+    # print fid_weht_dict
     # print fid_weht_dict
     # compute and accumulate updates for each data sample in the partition
     for sample in samples[1][1]:
@@ -82,7 +82,12 @@ def gd_partition(samples):
         sample_update = step_size * gradient
 
         for i in range(0, feature_ids.size):
-            local_updates[feature_ids[i]] += sample_update[i]
+            if feature_ids[i] in local_updates:
+                local_updates[feature_ids[i]] = (local_updates[feature_ids[i]][0]
+                                                + sample_update[i], local_updates[feature_ids[i]][1])
+            else:
+                local_updates[feature_ids[i]] = (sample_update[i], fid_weht_dict[feature_ids[i]])
+
 
         # compute the cross-entropy loss, which is an indirect measure of the
         # objective function that the gradient descent algorithm optimizes for
@@ -90,6 +95,7 @@ def gd_partition(samples):
             cross_entropy_loss -= safe_log(pred)
         else:
             cross_entropy_loss -= safe_log(1 - pred)
+    # print (cross_entropy_loss, local_updates.items())
 
     return (cross_entropy_loss, local_updates.items())
 
@@ -123,7 +129,12 @@ def global_feature_weight(parId, unit_num, last_unit_num):
 
 def get_loss_updates(sample):
     loss_acc.add(sample[0])
-    return sample[1]
+    return sample
+# def test_func(doc):
+
+def func(sample):
+    print sample[0]
+    print sample[1]
 
 if __name__ == "__main__":
     data_path = sys.argv[1]
@@ -140,11 +151,11 @@ if __name__ == "__main__":
     reg_param = 0.01
 
     # total number of cores of your Spark slaves
-    num_cores = 64
+    num_cores = 1
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 3
+    num_partitions = num_cores * 4
     unit_num = int(num_features / num_partitions)
     last_unit_num = num_features - unit_num * num_partitions + unit_num
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
@@ -187,13 +198,12 @@ if __name__ == "__main__":
                                  .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
         loss_acc = sc.accumulator(0)
+        # print loss_updates_rdd.collect()
+        new_global_fweights = loss_updates_rdd.map(get_loss_updates, preservesPartitioning=True)\
+                                              .flatMap(lambda x : x[1], preservesPartitioning=True)\
+                                              .map(lambda x :(x[0], (x[1][0], x[1][1])))\
+                                              .reduceByKey(lambda x,y : (x[0]+y[0], x[1])).map(lambda x :(x[0],x[1][0] + x[1][1]))
 
-        updates_rdd = loss_updates_rdd.flatMap(get_loss_updates)\
-                                      .reduceByKey(lambda x,y : x + y, numPartitions=num_partitions)
-
-        new_global_fweights = global_fweights.join(updates_rdd, numPartitions=num_partitions)\
-                                         .map(lambda x : (x[0],x[1][0] + x[1][1]))\
-                                         .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
         new_global_fweights.count()
         loss_updates_rdd.unpersist()
