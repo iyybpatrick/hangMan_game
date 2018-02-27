@@ -197,16 +197,13 @@ if __name__ == "__main__":
         loss_updates_rdd = joined.map(gd_partition, preservesPartitioning=True)\
                                  .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
-
         loss_acc = sc.accumulator(0)
-        # print loss_updates_rdd.collect()
         new_global_fweights = loss_updates_rdd.map(get_loss_updates, preservesPartitioning=True)\
                                               .flatMap(lambda x : x[1], preservesPartitioning=True)\
-                                              .map(lambda x :(x[0], (x[1][0], x[1][1])))\
-                                              .reduceByKey(lambda x,y : (x[0]+y[0], x[1])).map(lambda x :(x[0],x[1][0] + x[1][1]))
-
-
-
+                                              .map(lambda x :(x[0], (x[1][0], x[1][1])), preservesPartitioning=True)\
+                                              .reduceByKey(lambda x,y : (x[0]+y[0], x[1]))\
+                                              .map(lambda x :(x[0],x[1][0] + x[1][1]), preservesPartitioning=True)\
+                                              .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
         new_global_fweights.count()
         loss_updates_rdd.unpersist()
         global_fweights.unpersist()
