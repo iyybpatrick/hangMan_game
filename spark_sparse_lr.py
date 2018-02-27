@@ -86,7 +86,6 @@ def gd_partition(samples):
             else:
                 local_updates[feature_ids[i]] = (sample_update[i], fid_weht_dict[feature_ids[i]])
 
-
         # compute the cross-entropy loss, which is an indirect measure of the
         # objective function that the gradient descent algorithm optimizes for
         if label == 1:
@@ -115,7 +114,6 @@ def get_fid_pid(samples):
 def get_loss_updates(sample):
     loss_acc.add(sample[0])
     return sample
-# def test_func(doc):
 
 
 if __name__ == "__main__":
@@ -133,11 +131,11 @@ if __name__ == "__main__":
     reg_param = 0.01
 
     # total number of cores of your Spark slaves
-    num_cores = 64
+    num_cores = 3
     # for simplicity, the number of partitions is hardcoded
     # the number of partitions should be configured based on data size
     # and number of cores in your cluster
-    num_partitions = num_cores * 3
+    num_partitions = num_cores * 1
 
     conf = pyspark.SparkConf().setAppName("SparseLogisticRegressionGD")
     sc = pyspark.SparkContext(conf=conf)
@@ -155,7 +153,9 @@ if __name__ == "__main__":
     parId_samples_rdd = pid_label_fids_vals.flatMap(get_fid_pid, preservesPartitioning=True)\
                                            .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
-    global_fweights = parId_samples_rdd.map(lambda x:(x[0], weight_init_value)).distinct()
+    global_fweights = parId_samples_rdd.map(lambda x:(x[0], weight_init_value))\
+                                       .distinct()\
+                                       .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
     loss_fobj = open(loss_file, 'a+')
 
@@ -167,7 +167,6 @@ if __name__ == "__main__":
             .map(lambda x: (x[1][0], (x[0], x[1][1])), preservesPartitioning=True) \
             .groupByKey(numPartitions=num_partitions)\
             .map(lambda x: (x[0], dict(x[1])), preservesPartitioning=True)\
-            .partitionBy(numPartitions=num_partitions)
 
         #pid_fid_wht
         joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
