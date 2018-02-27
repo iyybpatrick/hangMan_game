@@ -90,11 +90,11 @@ def gd_partition(samples):
         # compute the cross-entropy loss, which is an indirect measure of the
         # objective function that the gradient descent algorithm optimizes for
         if label == 1:
-            cross_entropy_loss -= safe_log(pred)
+            loss_acc.add(-safe_log(pred))
         else:
-            cross_entropy_loss -= safe_log(1 - pred)
+            loss_acc.add((-safe_log(1 - pred)))
 
-    return (cross_entropy_loss, local_updates.items())
+    return local_updates.items()
 
 
 
@@ -153,7 +153,6 @@ if __name__ == "__main__":
     # force samples_rdd to be created
     num_samples = samples_rdd.count()
 
-
     # (parId, [(label, ([fids],[vals])]))
     pid_label_fids_vals = samples_rdd.mapPartitionsWithIndex(get_par_sample, preservesPartitioning=True) \
         .partitionBy(numPartitions=num_partitions) \
@@ -177,12 +176,13 @@ if __name__ == "__main__":
         # joined ; (parId, ([(fid, weight)], [(label, ([fids], [vals])])))
         joined = pid_label_fids_vals.join(pid_fid_wht, numPartitions=num_partitions)
 
+        loss_acc = sc.accumulator(0)
+
         loss_updates_rdd = joined.map(gd_partition) \
             .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
 
-        loss_acc = sc.accumulator(0)
 
-        new_global_fweights = loss_updates_rdd.flatMap(get_loss, preservesPartitioning=True) \
+        new_global_fweights = loss_updates_rdd\
             .reduceByKey(lambda x, y: (x[0] + y[0], x[1]), numPartitions=num_partitions) \
             .map(lambda x: (x[0], x[1][0] + x[1][1])) \
             .persist(pyspark.storagelevel.StorageLevel.MEMORY_AND_DISK)
